@@ -10,5 +10,9 @@ wheels/
 .venv
 
 # logs
-*BFL
-*csv
+*.BFL
+*.BBL
+*.bbl
+*.csv
+*.TXT
+*.txt

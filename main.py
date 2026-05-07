@@ -1,6 +1,6 @@
 from pprint import pprint
 import sys
-from bbldecoder.reader import LogParser, LogReader, load_logs
+from bblutil.reader import LogParser, LogReader, load_logs
 
 def main():
     logs = load_logs(sys.argv[1])

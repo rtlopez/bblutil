@@ -10,47 +10,8 @@ from .tools import (
     sign_extend_16bit,
     sign_extend_24bit 
 )
-from enum import Enum
+from .types import FrameType, EncodingType, PredictorType, EventType
 
-class EventType(Enum):
-    SYNC_BEEP = 0
-    INFLIGHT_ADJ = 13
-    RESUME = 14
-    DISARM = 15
-    FLIGHT_MODE = 30
-    LOG_END = 255
-
-class FrameType(Enum):
-    I = 'I' # Inter
-    P = 'P' # Intra
-    S = 'S' # Slow
-    E = 'E' # Event
-    G = 'G' # Gps
-    H = 'H' # Gps home
-
-class EncodingType(Enum):
-    SIGNED = 0
-    UNSIGNED = 1
-    NEG14 = 3
-    TAG8_8SVB = 6
-    TAG2_3S32 = 7
-    TAG8_4S16 = 8
-    NULL = 9
-    TAG2_3SV = 10
-
-class PredictorType(Enum):
-    ZERO = 0 # no prediction
-    PREV = 1 # same as last frame
-    STRAIGHT = 2 # slope of this and previous is the same
-    AVERAGE = 3 # average of previous 2 frames
-    MINTHROTTLE = 4 # same as min throttle
-    MOTOR0 = 5 # same as motor 0
-    INCREMENT = 6 # always increment
-    HOMECOORD = 7 # home coord or no prediction
-    SERVO = 8 # servo center 1500
-    VBATREF = 9 # vbar reference
-    LASTTIME = 10 # last time prediction
-    MINMOTOR = 11 # minmotor prediction
 
 @dataclass
 class FieldMeta:
@@ -263,7 +224,7 @@ class LogParser:
             frame_type = reader.read_byte()
             
             if self.desync:
-                # skip all data until I frame begins
+                # if lost sync, skip all data until I frame begins
                 if frame_type == ord('I'):
                     self.desync = False
                 else:
@@ -271,20 +232,26 @@ class LogParser:
 
             try:
                 ft = FrameType(chr(frame_type))
-            except ValueError as e:
+            
+                match ft:
+                    case FrameType.E:                   
+                        if self.read_event_frame(reader):
+                            break # end of log
+                    case FrameType.I | FrameType.P | FrameType.H | FrameType.G | FrameType.S:
+                        values = self.read_data_frame(reader, self.log.fields[ft])
+                        self.log.frames.append(Frame(ft, values))
+                    case _:
+                        raise RuntimeError(f"Unhandled frame type: '{frame_type:02X} at {reader.tell() - 1}'")
+
+            except EOFError:
+                # unexpected end of file
+                break
+
+            except ValueError:
                 # we lost sync or got unsupported frame type, skip everything till next I frame
                 self.desync = True
                 continue
 
-            match ft:
-                case FrameType.E:                   
-                    if self.read_event_frame(reader):
-                        break # end of log
-                case FrameType.H | FrameType.I | FrameType.P | FrameType.S | FrameType.G:
-                    values = self.read_data_frame(reader, self.log.fields[ft])
-                    self.log.frames.append(Frame(ft, values))
-                case _:
-                    raise ValueError(f"Unhandled frame type: '{frame_type:02X} at {reader.tell() - 1}'")
 
     def read_data_frame(self, reader: LogReader, fields: list[FieldMeta]) -> list[int]:
         fields_iter = enumerate(fields)
